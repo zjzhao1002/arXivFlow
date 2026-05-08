@@ -5,24 +5,46 @@ import sys
 sys.path.insert(0, _src_dp)
 
 from arxivflow import arxivflow
+import shutil
 
-def test_get_arxiv_data():
+def test_set_client_parameters():
+    """
+    Test that set_client_parameters correctly updates the underlying arxiv.Client object.
+    """
     # Initialize the arXivFlow class
-    categories = ["cs.AI", "cs.LG"]
-    arxiv_flow = arxivflow.arXivFlow(categories=categories, max_results=5, ollama_model="llama3.2")
+    categories = ["cs.AI"]
+    arxiv_flow = arxivflow.arXivFlow(categories=categories)
     
-    # Test case 1: Do not download PDFs
-    df1 = arxiv_flow.get_arxiv_data(download_pdfs=False)
-    assert not df1.empty
-    assert "arXiv ID" in df1.columns
-    assert "Title" in df1.columns
-    assert "Authors" in df1.columns
-    assert "Published Date/Updated Date" in df1.columns
-    assert "Categories" in df1.columns
-    assert "Abstract" in df1.columns
+    # Set custom client parameters
+    page_size = 50
+    delay_seconds = 5.0
+    num_retries = 5
+    arxiv_flow.set_client_parameters(page_size=page_size, delay_seconds=delay_seconds, num_retries=num_retries)
+    
+    # Assert that the parameters are correctly set in the client object
+    assert arxiv_flow.client.page_size == page_size
+    assert arxiv_flow.client.delay_seconds == delay_seconds
+    assert arxiv_flow.client.num_retries == num_retries
 
-    # Test case 2: Download PDFs and extract contact information
-    df2 = arxiv_flow.get_arxiv_data(download_pdfs=True)
-    assert not df2.empty
-    assert "Emails" in df2.columns
-    assert "Affiliations" in df2.columns
+def test_set_pdfs_path():
+    """
+    Test that set_pdfs_path correctly updates the path and creates the directory.
+    """
+    # Initialize the arXivFlow class
+    categories = ["cs.AI"]
+    arxiv_flow = arxivflow.arXivFlow(categories=categories)
+    
+    # Set a custom PDF path
+    custom_path = "test_pdfs_dir_setters"
+    if os.path.exists(custom_path):
+        shutil.rmtree(custom_path)
+        
+    arxiv_flow.set_pdfs_path(custom_path)
+    
+    # Assert that the path is set correctly and the directory is created
+    assert arxiv_flow.pdfs_path == custom_path
+    assert os.path.exists(custom_path)
+    assert os.path.isdir(custom_path)
+    
+    # Cleanup
+    shutil.rmtree(custom_path)

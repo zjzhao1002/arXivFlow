@@ -34,7 +34,20 @@ class arXivFlow:
         self.end_date = end_date
         self.max_results = int(max_results / len(self.categories)) if max_results else None
         self.ollama_model = ollama_model
+        self.client = arxiv.Client()
         self.dfs = []
+
+    def set_client_parameters(self, page_size: int = 100, delay_seconds: float = 3.0, num_retries: int = 3) -> None:
+        """
+        This function sets parameters for the arXiv client, including page size, delay between requests, and number of retries for failed requests.
+        Args:
+            page_size: The number of titles before needing to make another request. The default is 100.
+            delay_seconds: The number of seconds to wait between requests. The default is 3.0 seconds.
+            num_retries: The number of times to retry a request if it fails. The default is 3 times.
+        Returns:
+            None
+        """
+        self.client = arxiv.Client(page_size=page_size, delay_seconds=delay_seconds, num_retries=num_retries)
 
     def _get_date_string(self, date: datetime.datetime | str) -> str:
         """
@@ -278,7 +291,6 @@ class arXivFlow:
         if self._category_checker(category):
             print(f"Retrieving data for category {category} ({self._category_checker(category)}) from {start_date[:8]} to {end_date[:8]}...")
 
-        client = arxiv.Client()
         query = f"cat:{category} AND submittedDate:[{start_date} TO {end_date}]"
 
         search = arxiv.Search(
@@ -287,7 +299,7 @@ class arXivFlow:
             sort_by=arxiv.SortCriterion.SubmittedDate, 
         )
 
-        results = client.results(search)
+        results = self.client.results(search)
 
         data = []
 
