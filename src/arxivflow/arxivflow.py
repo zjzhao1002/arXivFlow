@@ -452,4 +452,4 @@ class arXivFlow:
             print("Google Sheet updated successfully.")
         except Exception as e:
             print(f"Error loading Google Sheets credentials: {e}")
-            returnturn
+            return

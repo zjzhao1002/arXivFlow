@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![Static Badge](https://img.shields.io/badge/pypi-0.1.1-blue)](https://pypi.org/project/arxivflow/)
+[![Static Badge](https://img.shields.io/badge/pypi-0.1.2-blue)](https://pypi.org/project/arxivflow/)
 [![Ollama](https://img.shields.io/badge/Ollama-Llama3.2-orange.svg)](https://ollama.ai/)
 [![arXiv](https://img.shields.io/badge/arXiv-API-red.svg)](https://arxiv.org/help/api/index)
 

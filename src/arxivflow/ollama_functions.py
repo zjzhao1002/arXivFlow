@@ -69,6 +69,8 @@ class OllamaFunctions:
         Returns:
             keywords: A list containing up to 5 keywords.
         """
+        if not title or not abstract:
+            return []
 
         print(f"Extracting keywords using {self.model_name} for title: {title}")
         prompt = f"""
@@ -98,7 +100,9 @@ class OllamaFunctions:
         Returns:
             content_json: A dictionary that contains the emails and affiliations of authors.
         """
-
+        if not text:
+            return {"emails": [], "affiliations": []}
+        
         prompt = f"""
         Extract the emails and affiliations from the following text:\n\n
         {text}\n\n
