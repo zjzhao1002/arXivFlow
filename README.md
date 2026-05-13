@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![Static Badge](https://img.shields.io/badge/pypi-0.1.2-blue)](https://pypi.org/project/arxivflow/)
+[![Static Badge](https://img.shields.io/badge/pypi-0.2.0-blue)](https://pypi.org/project/arxivflow/)
 [![Ollama](https://img.shields.io/badge/Ollama-Llama3.2-orange.svg)](https://ollama.ai/)
 [![arXiv](https://img.shields.io/badge/arXiv-API-red.svg)](https://arxiv.org/help/api/index)
 
@@ -12,9 +12,11 @@
 
 ## ✨ Features
 
+- **Asynchronous API**: Fully rewritten with `asyncio` for high-performance paper retrieval and PDF processing.
 - **Automated Retrieval**: Fetch the latest papers from specific arXiv categories (e.g., `cs.AI`, `cs.LG`, `hep-ph`) within any date range.
 - **Local AI Analysis**: Uses **Ollama models (e.g., Llama 3.2)** to extract keywords and contact information (emails/affiliations) directly from PDF text. No cloud API costs or data privacy concerns.
 - **Intelligent PDF Handling**: Automatically downloads PDFs and extracts text for deep analysis. Supports custom storage paths.
+- **Robust Rate Limiting**: Built-in compliance with arXiv's API guidelines (3-second request intervals).
 - **Multi-Format Export**: Save your research data to **CSV**, **JSON**, **Excel**, or **SQLite** for flexible offline analysis.
 - **Google Sheets Sync**: Seamlessly push compiled research data to a shared Google Sheet for team collaboration.
 - **Type-Safe & Modular**: Clean, documented Python code with full type hinting and a class-based architecture.
@@ -65,32 +67,40 @@ pip install arxivflow
 
 ## 📖 Usage
 
-### Quick Start
+### Quick Start (Async)
 
 ```python
-from arxivflow import arXivFlow
+import asyncio
 import datetime
+from arxivflow import arXivFlow
 
-# 1. Initialize the flow
-flow = arXivFlow(
-    categories=["cs.AI", "cs.CV"], 
-    ollama_model="llama3.2",
-    max_results=20,
-    start_date=datetime.datetime.now() - datetime.timedelta(days=7)
-)
+async def main():
+    # 1. Initialize the flow
+    flow = arXivFlow(
+        categories=["cs.AI", "cs.CV"], 
+        ollama_model="llama3.2",
+        max_results=20,
+        start_date=datetime.datetime.now() - datetime.timedelta(days=7)
+    )
 
-# 2. Fetch data & Extract info (Keywords/Contacts)
-df = flow.get_arxiv_data(download_pdfs=True)
+    # 2. Fetch data & Extract info (Keywords/Contacts)
+    df = await flow.get_arxiv_data(download_pdfs=True)
 
-# 3. Save to your preferred formats
-flow.save_to_csv("my_research.csv")
-flow.save_to_sqlite("research.db")
+    # 3. Save to your preferred formats
+    flow.save_to_csv("my_research.csv")
+    flow.save_to_sqlite("research.db")
 
-# 4. Sync with Google Sheets
-flow.save_to_google_sheet(
-    sheet_id="YOUR_SHEET_ID", 
-    credentials_file="credentials.json"
-)
+    # 4. Sync with Google Sheets
+    flow.save_to_google_sheet(
+        sheet_id="YOUR_SHEET_ID", 
+        credentials_file="credentials.json"
+    )
+    
+    # 5. Close the client
+    await flow.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
@@ -101,6 +111,8 @@ The project follows a modular structure for easy extension:
 
 - `src/arxivflow/arxivflow.py`: The main orchestrator class (`arXivFlow`).
 - `src/arxivflow/ollama_functions.py`: Local LLM interface using the Ollama API.
+- `src/arxivflow/arxiv_functions.py`: Asynchronous arXiv API interaction layer.
+- `src/arxivflow/categories.py`: arXiv category definitions.
 
 ---
 

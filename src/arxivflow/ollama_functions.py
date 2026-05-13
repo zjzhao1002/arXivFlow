@@ -1,5 +1,6 @@
 import ollama
 import json
+from typing import List, Dict, Any
 
 class OllamaFunctions:
     def __init__(self, model_name: str) -> None:
@@ -60,7 +61,7 @@ class OllamaFunctions:
         ollama.pull(self.model_name)
         print(f"Model '{self.model_name}' pulled successfully.")
 
-    def extract_keywords_ollama(self, title: str, abstract: str) -> list:
+    def extract_keywords_ollama(self, title: str, abstract: str) -> List[str]:
         """
         This function extracts keywords from the title and abstract of an arXiv paper.
         Args:
@@ -92,7 +93,7 @@ class OllamaFunctions:
             keywords = []
         return keywords
     
-    def extract_contact_ollama(self, text: str) -> dict:
+    def extract_contact_ollama(self, text: str) -> Dict[str, Any]:
         """
         This function extracts contact information from an arXiv paper.
         Args:

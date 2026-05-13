@@ -6,25 +6,25 @@ sys.path.insert(0, _src_dp)
 
 from arxivflow import arxivflow
 import shutil
+import pytest
+import httpx
 
-def test_set_client_parameters():
+@pytest.mark.anyio
+async def test_client_initialization():
     """
-    Test that set_client_parameters correctly updates the underlying arxiv.Client object.
+    Test that the arXivFlow class correctly initializes the httpx AsyncClient.
     """
     # Initialize the arXivFlow class
     categories = ["cs.AI"]
     arxiv_flow = arxivflow.arXivFlow(categories=categories)
     
-    # Set custom client parameters
-    page_size = 50
-    delay_seconds = 5.0
-    num_retries = 5
-    arxiv_flow.set_client_parameters(page_size=page_size, delay_seconds=delay_seconds, num_retries=num_retries)
+    # Assert that the client is an httpx.AsyncClient
+    assert isinstance(arxiv_flow.client, httpx.AsyncClient)
+    assert arxiv_flow.client.is_closed is False
     
-    # Assert that the parameters are correctly set in the client object
-    assert arxiv_flow.client.page_size == page_size
-    assert arxiv_flow.client.delay_seconds == delay_seconds
-    assert arxiv_flow.client.num_retries == num_retries
+    # Close the client
+    await arxiv_flow.close()
+    assert arxiv_flow.client.is_closed is True
 
 def test_set_pdfs_path():
     """
