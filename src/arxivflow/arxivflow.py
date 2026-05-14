@@ -151,7 +151,7 @@ class arXivFlow:
                     if self.ollama_model is not None:
                         doc = pymupdf.open(f"{pdf_dir}/{result["arXiv ID"]}.pdf")
                         page = doc[0] # The contact information should be available in the first page.
-                        text = page.get_text()
+                        text = page.get_text() # type: ignore
                         contact_info = ollama_functions.extract_contact_ollama(text) # type: ignore
                         print(f"Extracted Contact Information for {result["arXiv ID"]}.")
                         doc.close()
@@ -181,7 +181,7 @@ class arXivFlow:
             df["Keywords"] = df["Keywords"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
         return df
     
-    def save_to_csv(self, filename: str | None = None) -> None:
+    def save_to_csv(self, filename: Optional[str] = None) -> None:
         """
         This function saves data to a CSV file.
         Args:
@@ -197,7 +197,7 @@ class arXivFlow:
         merged_df.to_csv(filename, index=False)
         print(f"Data saved to {filename}")
 
-    def save_to_json(self, filename: str | None = None) -> None:
+    def save_to_json(self, filename: Optional[str] = None) -> None:
         """
         This function saves data to a JSON file.
         Args:
@@ -213,7 +213,7 @@ class arXivFlow:
         merged_df.to_json(filename, orient='records', lines=True)
         print(f"Data saved to {filename}")
 
-    def save_to_excel(self, filename: str | None = None) -> None:
+    def save_to_excel(self, filename: Optional[str] = None) -> None:
         """
         This function saves data to a EXCEL file.
         Args:
@@ -229,7 +229,7 @@ class arXivFlow:
         merged_df.to_excel(filename, index=False)
         print(f"Data saved to {filename}")
 
-    def save_to_sqlite(self, filename: str | None = None, table_name: str = "arxiv_data") -> None:
+    def save_to_sqlite(self, filename: Optional[str] = None, table_name: str = "arxiv_data") -> None:
         """
         This function saves data to a SQL file.
         Args:
@@ -247,7 +247,7 @@ class arXivFlow:
         conn.close()
         print(f"Data saved to {filename} in table {table_name}")
 
-    def save_to_google_sheet(self, sheet_id: str, credentials_file: str, sheet_name: str | None = None) -> None:
+    def save_to_google_sheet(self, sheet_id: str, credentials_file: str, sheet_name: Optional[str] = None) -> None:
         """
         This function uploads data to a Google Sheet. To use this function, a sheet ID and a Service Account are necessary. The target Google Sheet must be shared with the Service Account email.
         Args:

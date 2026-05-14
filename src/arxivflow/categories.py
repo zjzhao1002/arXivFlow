@@ -1,3 +1,6 @@
+"""
+Available categories on arXiv (2026-05-01). See [arXiv: Category Taxonomy](https://arxiv.org/category_taxonomy)
+"""
 all_categories = {
             "cs.AI": "Artificial Intelligence",
             "cs.AR": "Hardware Architecture",

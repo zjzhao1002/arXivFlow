@@ -11,6 +11,10 @@ ARXIV_NS = {
     "arxiv": "http://arxiv.org/schemas/atom"
 }
 
+ARXIV_HEADERS = {
+    "User-Agent": "arxivflow/0.2.0 (https://github.com/zjzhao1002/arXivFlow; research tool)"
+}
+
 _last_request_time = 0.0
 _request_lock = asyncio.Lock()
 MIN_REQUEST_INTERVAL = 3.0
@@ -50,26 +54,27 @@ async def _rate_limit_request(client: httpx.AsyncClient, url: str, params: Optio
             await asyncio.sleep(MIN_REQUEST_INTERVAL - elapsed)
         _last_request_time = time.monotonic()
 
-    for attempt in range(3): # Retry on timeout or 503
-        try:
-            response = await client.get(url, params=params)
-            if response.status_code == 429:
-                print("arXiv is rate limiting (429). Waiting 60 seconds...")
-                await asyncio.sleep(60.0)
-                continue
-            if response.status_code == 503:
-                print("arXiv service unavailable (503). Waiting 5 seconds...")
-                await asyncio.sleep(5.0)
-                continue
-            
-            response.raise_for_status()
-            return response
-        except (httpx.TimeoutException, httpx.NetworkError) as e:
-            if attempt < 2:
-                print(f"arXiv request failed ({e}). Retrying in 5s...")
-                await asyncio.sleep(5.0)
-            else:
-                raise
+    async with asyncio.Semaphore(3): # Only 3 tasks can enter here at once.
+        for attempt in range(3): # Retry on timeout or 503
+            try:
+                response = await client.get(url, params=params, headers=ARXIV_HEADERS)
+                if response.status_code == 429:
+                    print(f"arXiv is rate limiting (429). Waiting 60 seconds...")
+                    await asyncio.sleep(60.0)
+                    continue
+                if response.status_code == 503:
+                    print("arXiv service unavailable (503). Waiting 5 seconds...")
+                    await asyncio.sleep(5.0)
+                    continue
+                
+                response.raise_for_status()
+                return response
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                if attempt < 2:
+                    print(f"arXiv request failed ({e}). Retrying in 5s...")
+                    await asyncio.sleep(5.0)
+                else:
+                    raise
 
     raise RuntimeError("arXiv request failed after retries.")
     
@@ -153,7 +158,7 @@ async def download_pdf(
         client: Optional[httpx.AsyncClient] = None
     ) -> str:
         """
-        Downloads the PDF asynchronously.
+        Downloads the PDF asynchronously, respecting arXiv's rate limits.
         """
         if not pdf_url:
             raise ValueError("No PDF URL available")
@@ -166,14 +171,12 @@ async def download_pdf(
         path = os.path.join(dirpath, filename)
 
         if client:
-            response = await client.get(pdf_url)
-            response.raise_for_status()
+            response = await _rate_limit_request(client=client, url=pdf_url)
             with open(path, 'wb') as f:
                 f.write(response.content)
         else:
             async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as new_client:
-                response = await new_client.get(pdf_url)
-                response.raise_for_status()
+                response = await _rate_limit_request(client=new_client, url=pdf_url)
                 with open(path, 'wb') as f:
                     f.write(response.content)
 
