@@ -12,7 +12,7 @@ ARXIV_NS = {
 }
 
 ARXIV_HEADERS = {
-    "User-Agent": "arxivflow/0.2.0 (https://github.com/zjzhao1002/arXivFlow; research tool)"
+    "User-Agent": "arxivflow/0.2.1 (https://github.com/zjzhao1002/arXivFlow; research tool)"
 }
 
 _last_request_time = 0.0
@@ -54,17 +54,19 @@ async def _rate_limit_request(client: httpx.AsyncClient, url: str, params: Optio
             await asyncio.sleep(MIN_REQUEST_INTERVAL - elapsed)
         _last_request_time = time.monotonic()
 
-    async with asyncio.Semaphore(3): # Only 3 tasks can enter here at once.
+    async with asyncio.Semaphore(1): # Only 1 tasks can enter here at once.
         for attempt in range(3): # Retry on timeout or 503
             try:
                 response = await client.get(url, params=params, headers=ARXIV_HEADERS)
                 if response.status_code == 429:
                     print(f"arXiv is rate limiting (429). Waiting 60 seconds...")
                     await asyncio.sleep(60.0)
+                    _last_request_time = time.monotonic()
                     continue
                 if response.status_code == 503:
                     print("arXiv service unavailable (503). Waiting 5 seconds...")
                     await asyncio.sleep(5.0)
+                    _last_request_time = time.monotonic()
                     continue
                 
                 response.raise_for_status()
@@ -73,6 +75,7 @@ async def _rate_limit_request(client: httpx.AsyncClient, url: str, params: Optio
                 if attempt < 2:
                     print(f"arXiv request failed ({e}). Retrying in 5s...")
                     await asyncio.sleep(5.0)
+                    _last_request_time = time.monotonic()
                 else:
                     raise
 
