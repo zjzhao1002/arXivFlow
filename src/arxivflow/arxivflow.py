@@ -9,7 +9,7 @@ import gspread
 from typing import List, Optional
 from .ollama_functions import OllamaFunctions
 from .categories import all_categories
-from .arxiv_functions import search_paper, download_pdf
+from .arxiv_functions import DEFAULT_TIMEOUT, search_paper, download_pdf
 
 class arXivFlow:
 
@@ -18,7 +18,8 @@ class arXivFlow:
                  start_date: str | datetime.datetime | None = None,
                  end_date: str | datetime.datetime | None = None,
                  max_results: Optional[int] = 100, 
-                 ollama_model: Optional[str] = None
+                 ollama_model: Optional[str] = None,
+                 request_timeout: float = DEFAULT_TIMEOUT
                  ):
         """
         The constructor of the arXivFlow class. This class is the orchestrator of the entire workflow: 
@@ -32,6 +33,7 @@ class arXivFlow:
             end_date: The final date in format 'YYYYMMDD' or the built-in datetime object: datetime(year, month, day). Default is today (0 AM).
             max_results: The maximum number of results to retrieve. It can be set to None to retrieve all available data in the given date range, but the arXiv API's limit is 300,000 per query. Default is 100.
             ollama_model: The model name that can be run locally by Ollama. If the model is not available, the program will try to pull the model. If you don't need the LLM feature, you can set it to None, which is the default. 
+            request_timeout: Timeout in seconds for arXiv metadata and PDF requests. Default is 60 seconds.
         """
         self.categories = categories if isinstance(categories, list) else [categories]
         if not self.categories:
@@ -42,7 +44,7 @@ class arXivFlow:
         self.end_date = end_date if end_date is not None else now
         self.max_results = max_results
         self.ollama_model = ollama_model
-        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        self.client = httpx.AsyncClient(timeout=request_timeout, follow_redirects=True)
         self.dfs = []
 
     async def close(self):
@@ -118,8 +120,16 @@ class arXivFlow:
         end_date = self._get_date_string(self.end_date)
         dfs = []
         for category in self.categories:
-            df = await self._get_category_data(category, start_date, end_date, download_pdfs)
+            df = await self._get_category_data(
+                category,
+                start_date,
+                end_date,
+                download_pdfs=False,
+            )
             dfs.append(df)
+        if download_pdfs:
+            for df in dfs:
+                await self._download_pdfs_for_dataframe(df)
         self.dfs = dfs
         merged_df = self._merged_dataframe()
         return merged_df
@@ -196,6 +206,41 @@ class arXivFlow:
             df["Keywords"] = df["Keywords"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
         return df
 
+    async def _download_pdfs_for_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+
+        ollama_functions = None
+        if self.ollama_model is not None:
+            ollama_functions = OllamaFunctions(model_name=self.ollama_model)
+            df["Emails"] = ""
+            df["Affiliations"] = ""
+
+        for index, row in df.iterrows():
+            arxiv_id = row["arXiv ID"]
+            try:
+                pdf_dir = self._get_pdfs_path()
+                pdf_path = await download_pdf(
+                    pdf_url=row["PDF URL"],
+                    dirpath=pdf_dir,
+                    filename=f"{arxiv_id}.pdf",
+                    client=self.client,
+                )
+                print(f"Downloaded PDF for {arxiv_id}")
+
+                if ollama_functions is not None:
+                    text = await asyncio.to_thread(self._extract_first_page_text, pdf_path)
+                    contact_info = await asyncio.to_thread(ollama_functions.extract_contact_ollama, text)
+                    print(f"Extracted Contact Information for {arxiv_id}.")
+                    emails = contact_info.get("emails", [])
+                    affiliations = contact_info.get("affiliations", [])
+                    df.at[index, "Emails"] = ", ".join(emails) if emails else ""
+                    df.at[index, "Affiliations"] = "; ".join(affiliations) if affiliations else ""
+            except Exception as e:
+                print(f"Failed to download PDF for {arxiv_id}: {e}")
+
+        return df
+
     def _max_results_per_category(self) -> Optional[int]:
         if self.max_results is None:
             return None
@@ -213,7 +258,10 @@ class arXivFlow:
         non_empty_dfs = [df for df in self.dfs if not df.empty]
         if not non_empty_dfs:
             return pd.DataFrame()
-        return pd.concat(non_empty_dfs, ignore_index=True)
+        merged_df = pd.concat(non_empty_dfs, ignore_index=True)
+        if "arXiv ID" in merged_df.columns:
+            merged_df = merged_df.drop_duplicates(subset=["arXiv ID"], keep="first")
+        return merged_df.reset_index(drop=True)
     
     def save_to_csv(self, filename: Optional[str] = None) -> None:
         """

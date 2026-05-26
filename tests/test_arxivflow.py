@@ -79,6 +79,46 @@ async def test_get_arxiv_data_replaces_previous_results(monkeypatch):
     await arxiv_flow.close()
 
 @pytest.mark.anyio
+async def test_get_arxiv_data_fetches_all_metadata_before_pdf_downloads(monkeypatch):
+    events = []
+
+    async def fake_search_paper(query, max_results, client):
+        category = query.split(" ")[0].replace("cat:", "")
+        events.append(f"search:{category}")
+        return [
+            {
+                "arXiv ID": category,
+                "Title": "Test title",
+                "Authors": "Test Author",
+                "Abstract": "Test abstract",
+                "Categories": category,
+                "Published Date": "2026-05-26",
+                "Updated Date": "2026-05-26",
+                "arXiv URL": f"https://arxiv.org/abs/{category}",
+                "PDF URL": f"https://arxiv.org/pdf/{category}",
+            }
+        ]
+
+    async def fake_download_pdf(pdf_url, dirpath, filename, client):
+        events.append(f"download:{filename}")
+        return os.path.join(dirpath, filename)
+
+    monkeypatch.setattr(arxivflow, "search_paper", fake_search_paper)
+    monkeypatch.setattr(arxivflow, "download_pdf", fake_download_pdf)
+
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI", "cs.LG"], max_results=2)
+    await arxiv_flow.get_arxiv_data(download_pdfs=True)
+
+    assert events == [
+        "search:cs.AI",
+        "search:cs.LG",
+        "download:cs.AI.pdf",
+        "download:cs.LG.pdf",
+    ]
+
+    await arxiv_flow.close()
+
+@pytest.mark.anyio
 async def test_max_results_per_category_uses_ceiling_and_minimum():
     arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI", "cs.LG"], max_results=1)
     assert arxiv_flow._max_results_per_category() == 1

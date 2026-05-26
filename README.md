@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![Static Badge](https://img.shields.io/badge/pypi-0.2.1-blue)](https://pypi.org/project/arxivflow/)
+[![Static Badge](https://img.shields.io/badge/pypi-0.2.2-blue)](https://pypi.org/project/arxivflow/)
 [![Ollama](https://img.shields.io/badge/Ollama-Llama3.2-orange.svg)](https://ollama.ai/)
 [![arXiv](https://img.shields.io/badge/arXiv-API-red.svg)](https://arxiv.org/help/api/index)
 
@@ -15,8 +15,8 @@
 - **Asynchronous API**: Fully rewritten with `asyncio` for high-performance paper retrieval and PDF processing.
 - **Automated Retrieval**: Fetch the latest papers from specific arXiv categories (e.g., `cs.AI`, `cs.LG`, `hep-ph`) within any date range.
 - **Local AI Analysis**: Uses **Ollama models (e.g., Llama 3.2)** to extract keywords and contact information (emails/affiliations) directly from PDF text. No cloud API costs or data privacy concerns.
-- **Intelligent PDF Handling**: Automatically downloads PDFs and extracts text for deep analysis. Supports custom storage paths.
-- **Robust Rate Limiting**: Built-in compliance with arXiv's API guidelines (3-second request intervals).
+- **Intelligent PDF Handling**: Automatically downloads PDFs and extracts text for deep analysis. Supports custom storage paths and atomic PDF writes.
+- **Robust arXiv Requests**: Built-in compliance with arXiv's API guidelines (3-second request intervals), paged metadata retrieval, 429 cooldown handling, retry backoff, and duplicate-result cleanup.
 - **Multi-Format Export**: Save your research data to **CSV**, **JSON**, **Excel**, or **SQLite** for flexible offline analysis.
 - **Google Sheets Sync**: Seamlessly push compiled research data to a shared Google Sheet for team collaboration.
 - **Type-Safe & Modular**: Clean, documented Python code with full type hinting and a class-based architecture.
@@ -80,7 +80,8 @@ async def main():
         categories=["cs.AI", "cs.CV"], 
         ollama_model="llama3.2",
         max_results=20,
-        start_date=datetime.datetime.now() - datetime.timedelta(days=7)
+        start_date=datetime.datetime.now() - datetime.timedelta(days=7),
+        request_timeout=60.0
     )
 
     # 2. Fetch data & Extract info (Keywords/Contacts)
@@ -105,13 +106,31 @@ if __name__ == "__main__":
 
 ---
 
+## 🧱 Request Stability
+
+arXiv can occasionally return slow responses, rate limits, or temporary service errors. arXivFlow now makes the request path more stable by:
+
+- Fetching arXiv metadata in smaller pages instead of relying on one large request.
+- Fetching metadata for all requested categories before starting PDF downloads, which avoids PDF download bursts interfering with the next category query.
+- Serializing arXiv requests and preserving the recommended 3-second interval.
+- Retrying transient failures (`429`, `500`, `502`, `503`, `504`, timeouts, and network errors) with exponential backoff and jitter.
+- Applying a longer cooldown after `429` rate-limit responses before making the next arXiv request.
+- Respecting `Retry-After` headers when arXiv provides them.
+- Using a default 60-second request timeout, configurable with `request_timeout`.
+- Writing PDFs to temporary `.part` files first, then atomically replacing the final file only after validating PDF-like content.
+- Deduplicating merged output by `arXiv ID`.
+
+For especially large date ranges, prefer smaller `max_results` values or narrower date windows. arXivFlow will page requests internally, but smaller slices are still easier for arXiv and more reliable in practice.
+
+---
+
 ## 🏗️ Architecture
 
 The project follows a modular structure for easy extension:
 
 - `src/arxivflow/arxivflow.py`: The main orchestrator class (`arXivFlow`).
 - `src/arxivflow/ollama_functions.py`: Local LLM interface using the Ollama API.
-- `src/arxivflow/arxiv_functions.py`: Asynchronous arXiv API interaction layer.
+- `src/arxivflow/arxiv_functions.py`: Asynchronous arXiv API interaction layer, including paging, rate limiting, retries, and PDF downloads.
 - `src/arxivflow/categories.py`: arXiv category definitions.
 
 ---
