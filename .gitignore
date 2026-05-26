@@ -26,6 +26,7 @@ pip-selfcheck.json
 env/
 venv/
 .env/
+.env
 
 # Project Specific Data & Config
 credentials.json
@@ -36,6 +37,7 @@ user_input.json
 *.db
 pdfs/
 pdf_*/
+main.py
 
 # IDEs
 .vscode/

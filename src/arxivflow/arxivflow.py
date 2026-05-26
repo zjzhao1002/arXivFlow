@@ -2,6 +2,7 @@ import httpx
 import pandas as pd
 import pymupdf
 import os
+import asyncio
 import datetime
 import sqlite3
 import gspread
@@ -14,8 +15,8 @@ class arXivFlow:
 
     def __init__(self, 
                  categories: str | List[str], 
-                 start_date: str | datetime.datetime = datetime.datetime.now() - datetime.timedelta(days=7), 
-                 end_date: str | datetime.datetime = datetime.datetime.now(), 
+                 start_date: str | datetime.datetime | None = None,
+                 end_date: str | datetime.datetime | None = None,
                  max_results: Optional[int] = 100, 
                  ollama_model: Optional[str] = None
                  ):
@@ -33,9 +34,13 @@ class arXivFlow:
             ollama_model: The model name that can be run locally by Ollama. If the model is not available, the program will try to pull the model. If you don't need the LLM feature, you can set it to None, which is the default. 
         """
         self.categories = categories if isinstance(categories, list) else [categories]
-        self.start_date = start_date
-        self.end_date = end_date
-        self.max_results = int(max_results / len(self.categories)) if max_results else None
+        if not self.categories:
+            raise ValueError("At least one arXiv category must be provided.")
+
+        now = datetime.datetime.now()
+        self.start_date = start_date if start_date is not None else now - datetime.timedelta(days=7)
+        self.end_date = end_date if end_date is not None else now
+        self.max_results = max_results
         self.ollama_model = ollama_model
         self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self.dfs = []
@@ -111,10 +116,12 @@ class arXivFlow:
         """
         start_date = self._get_date_string(self.start_date)
         end_date = self._get_date_string(self.end_date)
+        dfs = []
         for category in self.categories:
             df = await self._get_category_data(category, start_date, end_date, download_pdfs)
-            self.dfs.append(df)
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+            dfs.append(df)
+        self.dfs = dfs
+        merged_df = self._merged_dataframe()
         return merged_df
 
     async def _get_category_data(self, category: str, start_date: str, end_date: str, download_pdfs: bool = False) -> pd.DataFrame:
@@ -133,7 +140,7 @@ class arXivFlow:
 
         query = f"cat:{category} AND submittedDate:[{start_date} TO {end_date}]"
 
-        results = await search_paper(query=query, max_results=self.max_results, client=self.client)
+        results = await search_paper(query=query, max_results=self._max_results_per_category(), client=self.client)
 
         data = []
 
@@ -149,12 +156,12 @@ class arXivFlow:
                     await download_pdf(pdf_url=pdf_url, dirpath=pdf_dir, filename=f"{result["arXiv ID"]}.pdf", client=self.client)
                     print(f"Downloaded PDF for {result["arXiv ID"]}")
                     if self.ollama_model is not None:
-                        doc = pymupdf.open(f"{pdf_dir}/{result["arXiv ID"]}.pdf")
-                        page = doc[0] # The contact information should be available in the first page.
-                        text = page.get_text() # type: ignore
-                        contact_info = ollama_functions.extract_contact_ollama(text) # type: ignore
+                        text = await asyncio.to_thread(
+                            self._extract_first_page_text,
+                            f"{pdf_dir}/{result["arXiv ID"]}.pdf",
+                        )
+                        contact_info = await asyncio.to_thread(ollama_functions.extract_contact_ollama, text) # type: ignore
                         print(f"Extracted Contact Information for {result["arXiv ID"]}.")
-                        doc.close()
                     else:
                         contact_info = {"emails": [], "affiliations": []}
                 except Exception as e:
@@ -177,9 +184,36 @@ class arXivFlow:
             return df
         
         if self.ollama_model is not None:
-            df['Keywords'] = df.apply(lambda row: ollama_functions.extract_keywords_ollama(row['Title'], row['Abstract']), axis=1)
+            keywords = [
+                await asyncio.to_thread(
+                    ollama_functions.extract_keywords_ollama,
+                    row["Title"],
+                    row["Abstract"],
+                )
+                for _, row in df.iterrows()
+            ]
+            df['Keywords'] = keywords
             df["Keywords"] = df["Keywords"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
         return df
+
+    def _max_results_per_category(self) -> Optional[int]:
+        if self.max_results is None:
+            return None
+        return max(1, (self.max_results + len(self.categories) - 1) // len(self.categories))
+
+    def _extract_first_page_text(self, pdf_path: str) -> str:
+        with pymupdf.open(pdf_path) as doc:
+            if len(doc) == 0:
+                return ""
+            return doc[0].get_text() # type: ignore
+
+    def _merged_dataframe(self) -> pd.DataFrame:
+        if not self.dfs:
+            return pd.DataFrame()
+        non_empty_dfs = [df for df in self.dfs if not df.empty]
+        if not non_empty_dfs:
+            return pd.DataFrame()
+        return pd.concat(non_empty_dfs, ignore_index=True)
     
     def save_to_csv(self, filename: Optional[str] = None) -> None:
         """
@@ -189,7 +223,7 @@ class arXivFlow:
         Returns:
             None
         """
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+        merged_df = self._merged_dataframe()
         if filename is None:
             start_date = self._get_date_string(self.start_date)
             end_date = self._get_date_string(self.end_date)
@@ -205,7 +239,7 @@ class arXivFlow:
         Returns:
             None
         """
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+        merged_df = self._merged_dataframe()
         if filename is None:
             start_date = self._get_date_string(self.start_date)
             end_date = self._get_date_string(self.end_date)
@@ -221,7 +255,7 @@ class arXivFlow:
         Returns:
             None
         """
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+        merged_df = self._merged_dataframe()
         if filename is None:
             start_date = self._get_date_string(self.start_date)
             end_date = self._get_date_string(self.end_date)
@@ -237,7 +271,7 @@ class arXivFlow:
         Returns:
             None
         """
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+        merged_df = self._merged_dataframe()
         if filename is None:
             start_date = self._get_date_string(self.start_date)
             end_date = self._get_date_string(self.end_date)
@@ -255,7 +289,7 @@ class arXivFlow:
             credentials_file: The file name of the JSON key associated with a Service Account. 
             sheet_name: The sheet name to write data. Be careful that this function will clear existing data first. If it is None, this function will create a sheet named 'Data_STARTDATE_to_ENDDATE'.
         """
-        merged_df = pd.concat(self.dfs, ignore_index=True)
+        merged_df = self._merged_dataframe()
         merged_df = merged_df.fillna('')  # Replace NaN with empty string for better compatibility with Google Sheets
         data = [merged_df.columns.values.tolist()] + merged_df.values.tolist()  # Convert DataFrame to list of lists
         if sheet_name is None:

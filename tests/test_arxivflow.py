@@ -48,3 +48,46 @@ def test_set_pdfs_path():
     
     # Cleanup
     shutil.rmtree(custom_path)
+
+@pytest.mark.anyio
+async def test_get_arxiv_data_replaces_previous_results(monkeypatch):
+    async def fake_search_paper(query, max_results, client):
+        return [
+            {
+                "arXiv ID": query.split(" ")[0].replace("cat:", ""),
+                "Title": "Test title",
+                "Authors": "Test Author",
+                "Abstract": "Test abstract",
+                "Categories": "cs.AI",
+                "Published Date": "2026-05-26",
+                "Updated Date": "2026-05-26",
+                "arXiv URL": "https://arxiv.org/abs/1234.5678",
+                "PDF URL": "https://arxiv.org/pdf/1234.5678",
+            }
+        ]
+
+    monkeypatch.setattr(arxivflow, "search_paper", fake_search_paper)
+
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI", "cs.LG"], max_results=10)
+    first_df = await arxiv_flow.get_arxiv_data()
+    second_df = await arxiv_flow.get_arxiv_data()
+
+    assert len(first_df) == 2
+    assert len(second_df) == 2
+    assert len(arxiv_flow.dfs) == 2
+
+    await arxiv_flow.close()
+
+@pytest.mark.anyio
+async def test_max_results_per_category_uses_ceiling_and_minimum():
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI", "cs.LG"], max_results=1)
+    assert arxiv_flow._max_results_per_category() == 1
+    await arxiv_flow.close()
+
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI", "cs.LG", "cs.CV"], max_results=10)
+    assert arxiv_flow._max_results_per_category() == 4
+    await arxiv_flow.close()
+
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI"], max_results=None)
+    assert arxiv_flow._max_results_per_category() is None
+    await arxiv_flow.close()
