@@ -8,6 +8,7 @@ import sqlite3
 import gspread
 from typing import List, Optional
 from .ollama_functions import OllamaFunctions
+from .gemini_functions import GeminiFunctions
 from .categories import all_categories
 from .arxiv_functions import DEFAULT_TIMEOUT, search_paper, download_pdf
 
@@ -19,6 +20,8 @@ class arXivFlow:
                  end_date: str | datetime.datetime | None = None,
                  max_results: Optional[int] = 100, 
                  ollama_model: Optional[str] = None,
+                 gemini_model: Optional[str] = None,
+                 gemini_api_key: Optional[str] = None,
                  request_timeout: float = DEFAULT_TIMEOUT
                  ):
         """
@@ -33,6 +36,8 @@ class arXivFlow:
             end_date: The final date in format 'YYYYMMDD' or the built-in datetime object: datetime(year, month, day). Default is today (0 AM).
             max_results: The maximum number of results to retrieve. It can be set to None to retrieve all available data in the given date range, but the arXiv API's limit is 300,000 per query. Default is 100.
             ollama_model: The model name that can be run locally by Ollama. If the model is not available, the program will try to pull the model. If you don't need the LLM feature, you can set it to None, which is the default. 
+            gemini_model: The Gemini model name to use. If both Ollama and Gemini are provided, Ollama takes precedence.
+            gemini_api_key: API Key for Gemini. If not provided, it will read from the 'GOOGLE_AI_API' environment variable.
             request_timeout: Timeout in seconds for arXiv metadata and PDF requests. Default is 60 seconds.
         """
         self.categories = categories if isinstance(categories, list) else [categories]
@@ -44,6 +49,10 @@ class arXivFlow:
         self.end_date = end_date if end_date is not None else now
         self.max_results = max_results
         self.ollama_model = ollama_model
+        self.gemini_model = gemini_model
+        self.gemini_api_key = gemini_api_key or os.getenv("GOOGLE_AI_API")
+        if self.gemini_model is not None and self.ollama_model is None and not self.gemini_api_key:
+            raise ValueError("Gemini API key is required when gemini_model is set. Pass gemini_api_key or set GOOGLE_AI_API.")
         self.client = httpx.AsyncClient(timeout=request_timeout, follow_redirects=True)
         self.dfs = []
 
@@ -118,23 +127,32 @@ class arXivFlow:
         """
         start_date = self._get_date_string(self.start_date)
         end_date = self._get_date_string(self.end_date)
+        llm_functions = self._create_llm_functions()
         dfs = []
         for category in self.categories:
             df = await self._get_category_data(
                 category,
                 start_date,
                 end_date,
+                llm_functions=llm_functions,
                 download_pdfs=False,
             )
             dfs.append(df)
         if download_pdfs:
             for df in dfs:
-                await self._download_pdfs_for_dataframe(df)
+                await self._download_pdfs_for_dataframe(df, llm_functions=llm_functions)
         self.dfs = dfs
         merged_df = self._merged_dataframe()
         return merged_df
 
-    async def _get_category_data(self, category: str, start_date: str, end_date: str, download_pdfs: bool = False) -> pd.DataFrame:
+    async def _get_category_data(
+            self,
+            category: str,
+            start_date: str,
+            end_date: str,
+            download_pdfs: bool = False,
+            llm_functions: OllamaFunctions | GeminiFunctions | None = None
+        ) -> pd.DataFrame:
         """
         This function fetches data of a specific category. Data are output to a pandas dataframe.
         Args:
@@ -154,8 +172,8 @@ class arXivFlow:
 
         data = []
 
-        if self.ollama_model is not None:
-            ollama_functions = OllamaFunctions(model_name=self.ollama_model)
+        use_ollama = self.ollama_model is not None
+        use_gemini = not use_ollama and self.gemini_model is not None
 
         for result in results: 
             # Download PDF
@@ -165,12 +183,19 @@ class arXivFlow:
                     pdf_url = result['PDF URL']
                     await download_pdf(pdf_url=pdf_url, dirpath=pdf_dir, filename=f"{result["arXiv ID"]}.pdf", client=self.client)
                     print(f"Downloaded PDF for {result["arXiv ID"]}")
-                    if self.ollama_model is not None:
+                    if use_ollama:
                         text = await asyncio.to_thread(
                             self._extract_first_page_text,
                             f"{pdf_dir}/{result["arXiv ID"]}.pdf",
                         )
-                        contact_info = await asyncio.to_thread(ollama_functions.extract_contact_ollama, text) # type: ignore
+                        contact_info = await asyncio.to_thread(llm_functions.extract_contact_ollama, text) # type: ignore
+                        print(f"Extracted Contact Information for {result["arXiv ID"]}.")
+                    elif use_gemini:
+                        text = await asyncio.to_thread(
+                            self._extract_first_page_text,
+                            f"{pdf_dir}/{result["arXiv ID"]}.pdf",
+                        )
+                        contact_info = await llm_functions.extract_contact_gemini(text) # type: ignore
                         print(f"Extracted Contact Information for {result["arXiv ID"]}.")
                     else:
                         contact_info = {"emails": [], "affiliations": []}
@@ -182,7 +207,7 @@ class arXivFlow:
 
             data.append(result)
 
-            if download_pdfs and self.ollama_model is not None:
+            if download_pdfs and (use_ollama or use_gemini):
                 emails = contact_info.get("emails", [])
                 affiliations = contact_info.get("affiliations", [])
                 result["Emails"] = ", ".join(emails) if emails else ""
@@ -193,10 +218,20 @@ class arXivFlow:
             print(f"No results found for category {category} between {start_date[:8]} and {end_date[:8]}.")
             return df
         
-        if self.ollama_model is not None:
+        if use_ollama:
             keywords = [
                 await asyncio.to_thread(
-                    ollama_functions.extract_keywords_ollama,
+                    llm_functions.extract_keywords_ollama, # type: ignore
+                    row["Title"],
+                    row["Abstract"],
+                )
+                for _, row in df.iterrows()
+            ]
+            df['Keywords'] = keywords
+            df["Keywords"] = df["Keywords"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+        elif use_gemini:
+            keywords = [
+                await llm_functions.extract_keywords_gemini( # type: ignore
                     row["Title"],
                     row["Abstract"],
                 )
@@ -206,13 +241,18 @@ class arXivFlow:
             df["Keywords"] = df["Keywords"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
         return df
 
-    async def _download_pdfs_for_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def _download_pdfs_for_dataframe(
+            self,
+            df: pd.DataFrame,
+            llm_functions: OllamaFunctions | GeminiFunctions | None = None
+        ) -> pd.DataFrame:
         if df.empty:
             return df
 
-        ollama_functions = None
-        if self.ollama_model is not None:
-            ollama_functions = OllamaFunctions(model_name=self.ollama_model)
+        use_ollama = self.ollama_model is not None
+        use_gemini = not use_ollama and self.gemini_model is not None
+
+        if use_ollama or use_gemini:
             df["Emails"] = ""
             df["Affiliations"] = ""
 
@@ -228,9 +268,17 @@ class arXivFlow:
                 )
                 print(f"Downloaded PDF for {arxiv_id}")
 
-                if ollama_functions is not None:
+                if use_ollama:
                     text = await asyncio.to_thread(self._extract_first_page_text, pdf_path)
-                    contact_info = await asyncio.to_thread(ollama_functions.extract_contact_ollama, text)
+                    contact_info = await asyncio.to_thread(llm_functions.extract_contact_ollama, text) # type: ignore
+                    print(f"Extracted Contact Information for {arxiv_id}.")
+                    emails = contact_info.get("emails", [])
+                    affiliations = contact_info.get("affiliations", [])
+                    df.at[index, "Emails"] = ", ".join(emails) if emails else ""
+                    df.at[index, "Affiliations"] = "; ".join(affiliations) if affiliations else ""
+                elif use_gemini:
+                    text = await asyncio.to_thread(self._extract_first_page_text, pdf_path)
+                    contact_info = await llm_functions.extract_contact_gemini(text) # type: ignore
                     print(f"Extracted Contact Information for {arxiv_id}.")
                     emails = contact_info.get("emails", [])
                     affiliations = contact_info.get("affiliations", [])
@@ -240,6 +288,13 @@ class arXivFlow:
                 print(f"Failed to download PDF for {arxiv_id}: {e}")
 
         return df
+
+    def _create_llm_functions(self) -> OllamaFunctions | GeminiFunctions | None:
+        if self.ollama_model is not None:
+            return OllamaFunctions(model_name=self.ollama_model)
+        if self.gemini_model is not None:
+            return GeminiFunctions(model_name=self.gemini_model, gemini_api_key=self.gemini_api_key) # type: ignore[arg-type]
+        return None
 
     def _max_results_per_category(self) -> Optional[int]:
         if self.max_results is None:

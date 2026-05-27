@@ -131,3 +131,37 @@ async def test_max_results_per_category_uses_ceiling_and_minimum():
     arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI"], max_results=None)
     assert arxiv_flow._max_results_per_category() is None
     await arxiv_flow.close()
+
+@pytest.mark.anyio
+async def test_arxivflow_gemini_config():
+    """
+    Test that arXivFlow correctly initializes the gemini_model and gemini_api_key.
+    """
+    arxiv_flow = arxivflow.arXivFlow(categories=["cs.AI"], gemini_model="gemini-2.5-flash", gemini_api_key="fake-key")
+    assert arxiv_flow.gemini_model == "gemini-2.5-flash"
+    assert arxiv_flow.gemini_api_key == "fake-key"
+    assert arxiv_flow.ollama_model is None
+    await arxiv_flow.close()
+
+def test_arxivflow_gemini_requires_api_key(monkeypatch):
+    """
+    Test that Gemini configuration fails early if no API key is available.
+    """
+    monkeypatch.delenv("GOOGLE_AI_API", raising=False)
+    with pytest.raises(ValueError):
+        arxivflow.arXivFlow(categories=["cs.AI"], gemini_model="gemini-2.5-flash")
+
+@pytest.mark.anyio
+async def test_arxivflow_model_precedence():
+    """
+    Test that if both Ollama and Gemini are set, Ollama takes precedence.
+    """
+    arxiv_flow = arxivflow.arXivFlow(
+        categories=["cs.AI"],
+        ollama_model="llama3.2",
+        gemini_model="gemini-2.5-flash",
+        gemini_api_key="fake-key"
+    )
+    assert arxiv_flow.ollama_model == "llama3.2"
+    assert arxiv_flow.gemini_model == "gemini-2.5-flash"
+    await arxiv_flow.close()

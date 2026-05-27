@@ -13,7 +13,7 @@ ARXIV_NS = {
 }
 
 ARXIV_HEADERS = {
-    "User-Agent": "arxivflow/0.2.2 (https://github.com/zjzhao1002/arXivFlow; research tool)"
+    "User-Agent": "arxivflow/0.3.0 (https://github.com/zjzhao1002/arXivFlow; research tool)"
 }
 
 _last_request_time = 0.0

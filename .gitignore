@@ -38,6 +38,7 @@ user_input.json
 pdfs/
 pdf_*/
 main.py
+.antigravitycli/
 
 # IDEs
 .vscode/
