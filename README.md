@@ -134,6 +134,15 @@ if __name__ == "__main__":
 
 If both `ollama_model` and `gemini_model` are provided, Ollama takes precedence. When `gemini_model` is set, a Gemini API key is required; pass `gemini_api_key` directly or set the `GOOGLE_AI_API` environment variable.
 
+### Examples
+
+Two runnable examples are included under `examples/`:
+
+- [`examples/editor`](examples/editor/README.md): fetches recent arXiv papers and drafts journal outreach emails from each paper's title, authors, and abstract.
+- [`examples/researcher`](examples/researcher/README.md): scores recent papers against a researcher's keywords and drafts outreach emails to relevant authors.
+
+Both examples use Ollama with `llama3.2` and write their results to `output.csv`.
+
 ---
 
 ## 🧱 Request Stability
